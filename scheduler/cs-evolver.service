@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly CyberSentinel Evolver evolution loop
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/dtfrost/cybersentinel-evolver/scheduler/run_evolve.sh
+User=dtfrost
+StandardOutput=append:/var/log/cs-evolver.log
+StandardError=append:/var/log/cs-evolver.log
+
+[Install]
+WantedBy=multi-user.target
