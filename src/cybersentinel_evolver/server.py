@@ -6,8 +6,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from .attacks import AttackGenerator, MutationEngine
 from .database import Database
@@ -18,8 +20,8 @@ from .detection import (
     run_tournament,
 )
 from .gap_analyzer import GapAnalyzer
+from .metrics import record_all
 from .self_promoter import SelfPromoter
-
 DB_PATH = Path("~/cybersentinel-evolver/data.db").expanduser()
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
@@ -50,6 +52,15 @@ class GapAnalysisRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "version": "0.2.0"}
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    record_all(db)
+    return PlainTextResponse(
+        content=generate_latest().decode("utf-8"),
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 # ── Scenarios ──────────────────────────────────────────────────────────
