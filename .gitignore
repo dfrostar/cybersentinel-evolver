@@ -1,3 +1,7 @@
 data.db
 data.db-shm
 data.db-wal
+frontend/test-results
+frontend/playwright-report
+frontend/.last-run.json
+__pycache__/
