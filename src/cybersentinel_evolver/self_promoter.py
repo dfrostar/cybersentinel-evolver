@@ -39,7 +39,11 @@ class PromptRecord:
 
 
 class SelfPromoter:
-    """Write LLM prompts from gap analysis; parse response into Scenario objects."""
+    """Write LLM prompts from gap analysis; parse response into Scenario objects.
+
+    If `db` is supplied, each PromptRecord is persisted to the `prompts` table.
+    Outputs (PromptRecord, parsed_scenarios).
+    """
 
     PROMPT_TEMPLATES = {
         "mutation_escaped": (
@@ -71,7 +75,7 @@ class SelfPromoter:
 
     def __init__(
         self,
-        db,
+        db=None,
         llm_client: LLMClient | None = None,
     ):
         self.db = db
@@ -79,7 +83,6 @@ class SelfPromoter:
 
     def build_prompt(self, trigger: str, context: dict) -> str:
         template = self.PROMPT_TEMPLATES.get(trigger, self.PROMPT_TEMPLATES["mutation_escaped"])
-        # Apply defaults for missing keys
         defaults = {
             "scenario_name": "UNKNOWN",
             "mutation_strategy": "UNKNOWN",
@@ -114,6 +117,9 @@ class SelfPromoter:
         )
 
         if self.llm is None:
+            if self.db is not None:
+                record.created_at = 0  # Will be set below
+                self.db.insert_prompt(record.to_dict())
             return record, []
 
         try:
@@ -122,9 +128,13 @@ class SelfPromoter:
             parsed = self._extract_json(raw)
             record.scenarios_extracted = len(parsed)
             record.accepted = len(parsed) > 0
+            if self.db is not None:
+                self.db.insert_prompt(record.to_dict())
             return record, parsed
         except Exception as e:
             record.llm_response = f"ERROR: {e}"
+            if self.db is not None:
+                self.db.insert_prompt(record.to_dict())
             return record, []
 
     def _extract_json(self, raw: str) -> list[dict]:

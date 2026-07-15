@@ -1,9 +1,11 @@
 """Gap Analysis — detect coverage cliffs, drift, and cost-accuracy gaps.
 
-Triggers self-prompting loop.
+Triggers self-prompting loop. Persists findings to gap_analysis table.
 """
 from __future__ import annotations
 
+import json
+import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -17,6 +19,15 @@ class GapFinding:
     severity: float  # 0.0–1.0
     recommended_prompt: str
     context: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(uuid.uuid4()),
+            "analysis_type": self.analysis_type,
+            "findings": json.dumps(self.finding),
+            "recommended_prompts": json.dumps([self.recommended_prompt]),
+            "created_at": 0,
+        }
 
 
 class GapAnalyzer:
@@ -71,12 +82,30 @@ class GapAnalyzer:
                     context={"abuse_types": [abuse], "delta": round(delta * 100, 1)},
                 ))
 
+        # Persist findings
+        for f in findings:
+            self.db.insert_gap_analysis(f.to_dict())
+
         return findings
 
     def analyze_mutations(self, escaped_only: bool = True) -> list[GapFinding]:
         """Identify mutations that escaped detection."""
         findings = []
-        # Query mutations (requires new DB method placeholder, but log structure)
+        mutations = self.db.get_mutations(escaped_only=escaped_only)
+        for m in mutations:
+            findings.append(GapFinding(
+                analysis_type="coverage",
+                finding={"mutation_id": m["mutation_id"], "strategy": m["strategy"]},
+                severity=0.7,
+                recommended_prompt=f"mutation_escaped_{m['strategy']}",
+                context={
+                    "scenario_name": m.get("child_scenario_id", "UNKNOWN")[:8],
+                    "mutation_strategy": m["strategy"],
+                    "failure_mode": f"detector missed {m['strategy']} mutation",
+                },
+            ))
+        for f in findings:
+            self.db.insert_gap_analysis(f.to_dict())
         return findings
 
     def analyze_cost_accuracy(self) -> list[GapFinding]:

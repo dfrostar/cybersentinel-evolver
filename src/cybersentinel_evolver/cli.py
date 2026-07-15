@@ -17,7 +17,9 @@ from .detection import (
     run_mutation_tournament,
     run_tournament,
 )
+from .gap_analyzer import GapAnalyzer
 from .models import now_ms
+from .self_promoter import SelfPromoter
 
 console = Console()
 
@@ -131,7 +133,6 @@ def evolve(ctx, weeks, auto_promote):
     from .models import Scenario
     scenario_objs = [Scenario.from_dict_row(s) for s in scenarios_list]
 
-    # Run baseline tournament first
     detectors = [RuleBasedDetector(), BehavioralBaselineDetector()]
     results = asyncio.run(run_tournament(detectors, scenario_objs))
 
@@ -141,7 +142,6 @@ def evolve(ctx, weeks, auto_promote):
     for week in range(weeks):
         console.print(f"\n[bold]Week {week + 1}[/bold]")
 
-        # Mutate scenarios where detector had 100% win rate
         mutations = []
         for s in scenario_objs:
             if any(r.win_rate >= 1.0 and r.detector_id == detectors[0].detector_id for r in results):
@@ -154,7 +154,6 @@ def evolve(ctx, weeks, auto_promote):
 
             results = asyncio.run(run_tournament(detectors, scenario_objs))
 
-            # Report
             for r in results:
                 console.print(f"  {r.detector_id}: win_rate={r.win_rate:.2%}, cost_blocked=${r.cost_blocked:,.2f}")
                 db.insert_tournament_result(r.to_dict())
@@ -222,6 +221,120 @@ def lineage(ctx, scenario_id):
             console.print(f"{prefix}- [{s['id'][:8]}] {s['name']} (gen={s['generation']}, depth={s['mutation_depth']})")
 
     show_scenario(scenario_id)
+
+
+# ── Self-Prompting Commands (v2.0) ───────────────────────────────────────
+
+
+@cli.command("self-prompt")
+@click.option(
+    "--trigger",
+    type=click.Choice(["mutation_escaped", "coverage_cliff", "tournament_tie", "feed_update"]),
+    required=True,
+    help="Trigger type for self-prompt",
+)
+@click.option(
+    "--context",
+    default="{}",
+    help="JSON context for the prompt template",
+)
+@click.option(
+    "--llm/--no-llm",
+    default=False,
+    help="Enable LLM call (requires API key). Default: template-only (no external calls).",
+)
+@click.pass_context
+def self_prompt(ctx, trigger, context, llm):
+    """Generate a self-prompt from gap analysis and optionally call LLM."""
+    db = ctx.obj["db"]
+    ctx_obj = json.loads(context) if isinstance(context, str) else context
+    llm_client = None
+    if llm:
+        try:
+            from .llm_client import get_llm_client
+
+            llm_client = get_llm_client()
+        except Exception as e:
+            console.print(f"[yellow]LLM not available: {e}[/yellow]")
+            console.print("[yellow]Falling back to template-only mode[/yellow]")
+
+    promoter = SelfPromoter(db=db, llm_client=llm_client)
+    record, parsed = promoter.generate(trigger, ctx_obj)
+
+    console.print(f"[green]Prompt generated:[/green] {record.id}")
+    console.print(f"[dim]{record.prompt_text[:200]}...[/dim]")
+    console.print(f"Scenarios extracted: {len(parsed)}")
+    if record.llm_response:
+        console.print(f"LLM response: {record.llm_response[:200]}...")
+
+
+@cli.command("gap-analysis")
+@click.option(
+    "--type",
+    "analysis_type",
+    type=click.Choice(["coverage", "drift", "cost_accuracy", "mutations"]),
+    default="coverage",
+    help="Gap analysis type",
+)
+@click.pass_context
+def gap_analysis(ctx, analysis_type):
+    """Run gap analysis and persist findings."""
+    db = ctx.obj["db"]
+    analyzer = GapAnalyzer(db)
+    if analysis_type == "mutations":
+        findings = analyzer.analyze_mutations(escaped_only=True)
+    elif analysis_type == "coverage":
+        findings = analyzer.analyze_coverage()
+    else:
+        findings = []
+
+    if not findings:
+        console.print("[green]No gaps detected.[/green]")
+        return
+
+    table = Table(title="Gap Analysis Findings")
+    table.add_column("Type", style="cyan")
+    table.add_column("Severity", style="magenta")
+    table.add_column("Finding", style="bold")
+    table.add_column("Recommended Prompt", style="blue")
+    for f in findings:
+        table.add_row(
+            f.analysis_type,
+            f"{f.severity:.2f}",
+            str(f.finding)[:60],
+            f.recommended_prompt,
+        )
+    console.print(table)
+
+
+@cli.command("prompts")
+@click.option("--trigger-type", default=None, help="Filter by trigger type")
+@click.pass_context
+def prompts(ctx, trigger_type):
+    """Show self-prompt history."""
+    db = ctx.obj["db"]
+    prompts = db.get_prompts(trigger_type=trigger_type)
+
+    if not prompts:
+        console.print("[yellow]No prompts found.[/yellow]")
+        return
+
+    table = Table(title="Self-Prompt History")
+    table.add_column("ID", style="dim")
+    table.add_column("Trigger", style="cyan")
+    table.add_column("Scenarios", style="magenta")
+    table.add_column("Accepted", style="bold")
+    table.add_column("Prompt", style="blue")
+
+    for p in prompts:
+        table.add_row(
+            p["id"][:8],
+            p["trigger_type"],
+            str(p["scenarios_extracted"]),
+            str(bool(p["accepted"])) if p["accepted"] is not None else "?",
+            p["prompt_text"][:80] + "...",
+        )
+    console.print(table)
 
 
 def main():

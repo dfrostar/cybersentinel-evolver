@@ -11,6 +11,9 @@ class FakeDB:
     def insert_scenario(self, s):
         self.scenarios.append(s)
 
+    def insert_prompt(self, p):
+        self.prompts.append(p)
+
 
 def test_build_prompt_mutation_escaped():
     db = FakeDB()
