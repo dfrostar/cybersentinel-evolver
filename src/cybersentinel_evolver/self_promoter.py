@@ -79,7 +79,19 @@ class SelfPromoter:
 
     def build_prompt(self, trigger: str, context: dict) -> str:
         template = self.PROMPT_TEMPLATES.get(trigger, self.PROMPT_TEMPLATES["mutation_escaped"])
-        return template.format(**context)
+        # Apply defaults for missing keys
+        defaults = {
+            "scenario_name": "UNKNOWN",
+            "mutation_strategy": "UNKNOWN",
+            "failure_mode": "UNKNOWN",
+            "delta": 0,
+            "abuse_types": [],
+            "detectors": "",
+            "failure_modes": "",
+            "feed_description": "GENERIC",
+        }
+        merged = {**defaults, **context}
+        return template.format(**merged)
 
     def generate(
         self,
