@@ -35,6 +35,10 @@ MutationStrategy = Literal[
     "temporal_mutation",
     "protocol_mutation",
     "intent_preserving",
+    "payload_fragmentation",
+    "diurnal_pacing",
+    "multi_identity_rotation",
+    "path_diversification",
 ]
 
 MethodType = Literal["GET", "POST", "PUT", "DELETE"]

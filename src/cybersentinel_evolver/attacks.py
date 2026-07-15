@@ -288,16 +288,32 @@ class AttackGenerator:
 
 
 class MutationEngine:
-    """Generate mutations of detected scenarios to test edge resilience."""
+    """Generate mutations of detected scenarios to test edge resilience.
+
+    Each mutation strategy produces children that look increasingly benign
+    to detector heuristics while preserving attacker intent in a minority
+    of requests. The `disguise_rate` parameter controls what fraction of
+    requests are camouflaged as legitimate traffic.
+    """
+
+    DEFAULT_DISGUISE_RATE = 0.7  # 70% of requests appear benign
 
     def __init__(self, db: Database):
         self.db = db
 
-    def mutate(self, parent: Scenario, strategy: MutationStrategy, n: int = 3) -> list[Scenario]:
+    def mutate(
+        self,
+        parent: Scenario,
+        strategy: MutationStrategy,
+        n: int = 3,
+        disguise_rate: float | None = None,
+    ) -> list[Scenario]:
         """Generate n mutated children for a given scenario."""
+        if disguise_rate is None:
+            disguise_rate = self.DEFAULT_DISGUISE_RATE
         children = []
         for i in range(n):
-            child = self._apply_mutation(parent, strategy, i)
+            child = self._apply_mutation(parent, strategy, i, disguise_rate)
             self.db.insert_scenario(child.to_dict())
             children.append(child)
         return children
@@ -307,12 +323,13 @@ class MutationEngine:
         parent: Scenario,
         strategy: MutationStrategy,
         index: int,
+        disguise_rate: float,
     ) -> Scenario:
         """Apply a single mutation strategy to produce a child scenario."""
         child_requests = []
 
-        for req in parent.requests:
-            mutated = self._mutate_request(req, strategy, index)
+        for j, req in enumerate(parent.requests):
+            mutated = self._mutate_request(req, strategy, index, j, disguise_rate)
             child_requests.append(mutated)
 
         return Scenario(
@@ -332,37 +349,100 @@ class MutationEngine:
         self,
         req: AttackRequest,
         strategy: MutationStrategy,
-        index: int,
+        child_index: int,
+        request_index: int,
+        disguise_rate: float,
     ) -> AttackRequest:
-        """Apply mutation to a single request based on strategy."""
+        """Apply mutation to a single request based on strategy.
+
+        `request_index` identifies this request's position in the parent
+        scenario, used to decide whether this request is disguised as benign.
+        """
         headers = dict(req.headers)
         path = req.path
         body = req.body_b64
         timing = req.timing_ms
+        outcome = req.expected_outcome
+
+        # Determine if this request is disguised as legitimate traffic
+        # Use request_index so the same positions are always disguised
+        is_disguised = (request_index % 10) < int(disguise_rate * 10)
 
         if strategy == "identity_swap":
-            # Rotate identity claims: IP → JWT → User-Agent → OAuth client
             if "Authorization" in headers:
-                headers["Authorization"] = f"Bearer rotated_token_{index}"
+                headers["Authorization"] = f"Bearer rotated_token_{child_index}"
             elif "X-Agent-Name" in headers:
-                headers["X-Agent-Name"] = f"mutated-agent-{index}"
+                headers["X-Agent-Name"] = f"mutated-agent-{child_index}"
             else:
-                headers["User-Agent"] = f"MutatedBot/{index}.0"
+                headers["User-Agent"] = f"MutatedBot/{child_index}.0"
 
         elif strategy == "temporal_mutation":
-            # Slow down by 10x or burst to near-zero
-            timing = timing * 10 if index % 2 == 0 else max(1, timing // 10)
+            timing = timing * 10 if child_index % 2 == 0 else max(1, timing // 10)
 
         elif strategy == "protocol_mutation":
-            # Swap GET ↔ POST, reorder headers
             method = "POST" if req.method == "GET" else "GET"
             return AttackRequest(method, path, dict(reversed(list(headers.items()))),
-                                 body, req.expected_outcome, timing)
+                                 body, outcome, timing)
 
         elif strategy == "intent_preserving":
-            # Change surface but preserve attacker goal
             path_variants = ["/v1/chat", "/api/chat", "/chat/completions"]
-            path = path_variants[index % len(path_variants)]
+            path = path_variants[child_index % len(path_variants)]
 
-        return AttackRequest(req.method, path, headers, body,
-                             req.expected_outcome, timing)
+        elif strategy == "payload_fragmentation":
+            # Evasive: split large body into many small chunked POSTs
+            # Breaks Rule 2 (burst timing) and Rule 3 (LLM path count)
+            if is_disguised:
+                outcome = "allow"
+                path = "/api/v1/upload-chunk"
+                headers["X-Fragment-Id"] = f"frag-{request_index}"
+            headers["Transfer-Encoding"] = "chunked"
+            if body:
+                body = body[:max(len(body) // 4, 1)]
+            timing = timing * 20  # slow down to evade burst detection
+
+        elif strategy == "diurnal_pacing":
+            # Evasive: spread requests over hours (high timing_ms)
+            # Evades Rule 2 (burst detection) and Behavioral RPM calc
+            if is_disguised:
+                outcome = "allow"
+                path = "/api/v1/health"
+                headers["X-Pacing"] = "background"
+            timing = 3600_000 + (request_index * 60_000)
+
+        elif strategy == "multi_identity_rotation":
+            # Evasive: rotate identity per request + camouflage majority
+            # Evades Rule 1 (single-identity patterns) and Behavioral (unique paths)
+            rotation = [
+                {"X-Forwarded-For": f"10.0.{child_index}.{i}"}
+                for i in range(5)
+            ]
+            headers = rotation[request_index % len(rotation)]
+            if "Authorization" in headers:
+                del headers["Authorization"]
+            headers["X-Rotation"] = f"rot-{child_index}"
+            if is_disguised:
+                outcome = "allow"
+                path = "/api/v1/metrics"
+                timing = timing * 10 + request_index * 500
+
+        elif strategy == "path_diversification":
+            # Evasive: distribute across many benign-looking paths
+            # Evades Behavioral Rule (unique_paths <= 3)
+            # Note: avoid paths containing "/v1/" or "/api/chat" to evade Rule 3
+            evasive_paths = [
+                "/status", "/healthz", "/readyz", "/ping",
+                "/metrics", "/info", "/version", "/config",
+                "/debug",
+            ]
+            path = evasive_paths[request_index % len(evasive_paths)]
+            headers["Accept"] = "application/json"
+            if is_disguised:
+                outcome = "allow"
+                timing = timing * 10 + request_index * 500
+
+        # Apply disguise if not already set by the strategy above
+        # (strategies that don't set outcome keep the original)
+        if is_disguised and strategy in ("identity_swap", "temporal_mutation"):
+            outcome = "allow"
+
+        return AttackRequest(req.method, path, headers, body, outcome, timing)
