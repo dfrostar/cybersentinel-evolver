@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
@@ -27,7 +27,7 @@ from .self_promoter import SelfPromoter
 DB_PATH = Path(
     os.environ.get("EVOLVER_DB", "~/cybersentinel-evolver/data.db")
 ).expanduser()
-FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 db = Database(DB_PATH)
 app = FastAPI(title="CyberSentinel Evolver", version="0.2.0")
@@ -203,6 +203,27 @@ async def evolve(weeks: int = 1, auto_promote: bool = False):
 
 
 # ── Static Frontend ───────────────────────────────────────────────────
+# ── Static Frontend ───────────────────────────────────────────────────
+frontend_assets = FRONTEND_DIST / "assets"
+if frontend_assets.exists():
+    app.mount("/assets", StaticFiles(directory=str(frontend_assets)), name="assets")
 
-if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return FileResponse(FRONTEND_INDEX)
+
+# SPA fallback: serve index.html for non-API GET requests
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    # If it's an API or asset path that somehow missed, try file first
+    if full_path.startswith("api/"):
+        raise HTTPException(404)
+    candidate = FRONTEND_DIST / full_path
+    if candidate.is_file():
+        return FileResponse(candidate)
+    return FileResponse(FRONTEND_INDEX)
+
+
+# ── Request Models ──────────────────────────────────────────────────────
