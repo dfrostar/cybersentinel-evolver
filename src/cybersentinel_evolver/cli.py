@@ -337,6 +337,62 @@ def prompts(ctx, trigger_type):
     console.print(table)
 
 
+# ── CyberSentinel Integration (v2.0) ────────────────────────────────────
+
+
+@cli.command("cs-integration")
+@click.option("--host", default="http://localhost:3000", help="CyberSentinel API URL")
+@click.option("--client-id", default="evolver-test", help="Client ID for JWT auth")
+@click.option("--max-requests", default=None, type=int, help="Max requests to send")
+@click.pass_context
+def cs_integration(ctx, host, client_id, max_requests):
+    """Run scenario requests against CyberSentinel and detect 5xx regressions."""
+    from .cybersentinel_client import CyberSentinelClient
+
+    db = ctx.obj["db"]
+    client = CyberSentinelClient(host, client_id)
+
+    console.print(f"[bold]CyberSentinel Integration Test[/bold]")
+    console.print(f"Target: {host}")
+
+    # Health check
+    if client.health():
+        console.print("[green]✓ Health check passed[/green]")
+    else:
+        console.print("[red]✗ Health check failed[/red]")
+        return
+
+    # Authenticate
+    if client.authenticate():
+        console.print("[green]✓ Authenticated[/green]")
+    else:
+        console.print("[red]✗ Auth failed[/red]")
+        return
+
+    # Load scenarios
+    scenarios = db.get_scenarios()
+    console.print(f"Loaded {len(scenarios)} scenarios from DB")
+
+    # Run regression scan
+    report = client.scan_scenario_requests(scenarios, max_requests=max_requests)
+
+    # Print results
+    console.print()
+    console.print(report.summary())
+
+    if report.has_regressions():
+        console.print("\n[red bold]⚠ REGRESSIONS DETECTED[/red bold]")
+        table = Table(title="5xx Regressions")
+        table.add_column("Scenario", style="cyan")
+        table.add_column("Method", style="magenta")
+        table.add_column("Path", style="bold")
+        table.add_column("Status", style="red")
+        for r in report.results:
+            if r.is_regression():
+                table.add_row(r.scenario_name, r.method, r.path, str(r.status_code))
+        console.print(table)
+
+
 def main():
     cli()
 
