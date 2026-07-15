@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -22,7 +23,10 @@ from .detection import (
 from .gap_analyzer import GapAnalyzer
 from .metrics import record_all
 from .self_promoter import SelfPromoter
-DB_PATH = Path("~/cybersentinel-evolver/data.db").expanduser()
+
+DB_PATH = Path(
+    os.environ.get("EVOLVER_DB", "~/cybersentinel-evolver/data.db")
+).expanduser()
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 db = Database(DB_PATH)

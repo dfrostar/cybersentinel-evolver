@@ -139,17 +139,33 @@ def evolve(ctx, weeks, auto_promote):
     console.print("[bold cyan]=== Evolution Loop ===[/bold cyan]")
     console.print(f"Starting with {len(scenario_objs)} scenarios")
 
+    # Evaluate scenarios individually to find misses for the best detector
+    best_detector = max(results, key=lambda r: r.win_rate)
+
+    # Check which scenarios the best detector missed
+    missed_scenarios = []
+    for s in scenario_objs:
+        det_result = asyncio.run(run_tournament([detectors[0]], [s]))
+        if det_result[0].win_rate < 1.0:
+            missed_scenarios.append(s)
+
+    console.print(f"Best detector: {best_detector.detector_id} (win_rate={best_detector.win_rate:.2%})")
+    console.print(f"Scenarios missed by best detector: {len(missed_scenarios)}")
+
     for week in range(weeks):
         console.print(f"\n[bold]Week {week + 1}[/bold]")
 
         mutations = []
-        for s in scenario_objs:
-            if any(r.win_rate >= 1.0 and r.detector_id == detectors[0].detector_id for r in results):
-                children = mut.mutate(s, "identity_swap", n=3)
-                mutations.extend(children)
+        # Mutate scenarios that the best detector missed
+        for s in missed_scenarios:
+            children = mut.mutate(s, "identity_swap", n=3)
+            mutations.extend(children)
+            # Also try other strategies for variety
+            children = mut.mutate(s, "diurnal_pacing", n=2)
+            mutations.extend(children)
 
         if mutations:
-            console.print(f"Generated {len(mutations)} mutations")
+            console.print(f"Generated {len(mutations)} mutations from {len(missed_scenarios)} missed scenarios")
             scenario_objs.extend(mutations)
 
             results = asyncio.run(run_tournament(detectors, scenario_objs))
@@ -157,8 +173,15 @@ def evolve(ctx, weeks, auto_promote):
             for r in results:
                 console.print(f"  {r.detector_id}: win_rate={r.win_rate:.2%}, cost_blocked=${r.cost_blocked:,.2f}")
                 db.insert_tournament_result(r.to_dict())
+
+            # Re-evaluate misses for next week
+            missed_scenarios = []
+            for s in scenario_objs[len(scenario_objs) - len(mutations):]:  # only check new mutants
+                det_result = asyncio.run(run_tournament([detectors[0]], [s]))
+                if det_result[0].win_rate < 1.0:
+                    missed_scenarios.append(s)
         else:
-            console.print("  No mutations required (detectors not at 100%)")
+            console.print("  No mutations required — best detector has perfect coverage")
 
     if auto_promote and results:
         winner = max(results, key=lambda r: r.win_rate)
