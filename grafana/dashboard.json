@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Cost Blocked by Detector",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "cybersentinel_cost_blocked_usd",
+          "legendFormat": "{{detector_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }
+          ]}
+        }
+      }
+    },
+    {
+      "title": "Win Rate by Detector",
+      "type": "gauge",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "cybersentinel_win_rate",
+          "legendFormat": "{{detector_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": 0 },
+            { "color": "yellow", "value": 0.5 },
+            { "color": "green", "value": 0.8 }
+          ]}
+        }
+      }
+    },
+    {
+      "title": "Mutation Escape Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 4 },
+      "targets": [
+        {
+          "expr": "cybersentinel_mutation_escape_rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      }
+    },
+    {
+      "title": "Tournament History",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "cybersentinel_cost_blocked_usd",
+          "legendFormat": "Blocked: {{detector_id}}"
+        },
+        {
+          "expr": "cybersentinel_cost_missed_usd",
+          "legendFormat": "Missed: {{detector_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD" }
+      }
+    },
+    {
+      "title": "Scenario & Mutation Growth",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "cybersentinel_scenarios_total",
+          "legendFormat": "Scenarios"
+        },
+        {
+          "expr": "cybersentinel_mutations_total",
+          "legendFormat": "Mutations"
+        }
+      ]
+    },
+    {
+      "title": "Self-Prompt Acceptance",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 12, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "cybersentinel_prompt_acceptance_rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": 0 },
+            { "color": "yellow", "value": 0.3 },
+            { "color": "green", "value": 0.6 }
+          ]}
+        }
+      }
+    },
+    {
+      "title": "Total Tournament Runs",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 12, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "cybersentinel_tournament_runs_total"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["cybersentinel", "evolver", "security"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "title": "CyberSentinel Evolver",
+  "uid": "cybersentinel-evolver",
+  "version": 1
+}
