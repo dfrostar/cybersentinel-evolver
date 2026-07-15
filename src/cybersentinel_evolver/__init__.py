@@ -11,6 +11,7 @@ from .detection import (
     run_mutation_tournament,
     run_tournament,
 )
+from .gap_analyzer import GapAnalyzer
 from .models import (
     AttackRequest,
     CostModel,
@@ -22,20 +23,24 @@ from .models import (
     compute_cost,
     get_cost_model,
 )
+from .self_promoter import PromptRecord, SelfPromoter
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"  # v2 schema + self-prompting loop
 __all__ = [
     "AttackGenerator",
     "AttackRequest",
     "BehavioralBaselineDetector",
     "CostModel",
     "Database",
+    "GapAnalyzer",
     "MutationEngine",
     "MutationRecord",
     "MutationStrategy",
+    "PromptRecord",
     "RandomDetector",
     "RuleBasedDetector",
     "Scenario",
+    "SelfPromoter",
     "TournamentResult",
     "bootstrap_confidence_interval",
     "compute_cost",
