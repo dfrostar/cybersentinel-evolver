@@ -166,46 +166,63 @@ async def run_tournament(
     cost_model = get_cost_model(cost_model_label)
 
     for detector in detectors:
-        detected_count = 0
-        false_positive_count = 0
-        blocked_requests = 0
+        try:
+            detected_count = 0
+            false_positive_count = 0
+            blocked_requests = 0
 
-        for scenario in scenarios:
-            result = await detector.evaluate(scenario)
-            if result.verdict == "detected":
-                detected_count += 1
-                blocked_requests += sum(1 for r in result.per_request if r == "blocked")
-            elif result.verdict == "missed":
-                # Check if scenario was benign (expected allow)
-                benign = all(r.expected_outcome == "allow" for r in scenario.requests)
-                if not benign and result.verdict == "detected":
-                    pass  # correct detection
-                if benign and result.verdict == "detected":
-                    false_positive_count += 1
+            for scenario in scenarios:
+                result = await detector.evaluate(scenario)
+                if result.verdict == "detected":
+                    detected_count += 1
+                    blocked_requests += sum(1 for r in result.per_request if r == "blocked")
+                elif result.verdict == "missed":
+                    benign = all(r.expected_outcome == "allow" for r in scenario.requests)
+                    if not benign and result.verdict == "detected":
+                        pass  # correct detection
+                    if benign and result.verdict == "detected":
+                        false_positive_count += 1
 
-        win_rate = detected_count / len(scenarios) if scenarios else 0.0
-        ci_low, ci_high = bootstrap_confidence_interval(detected_count, len(scenarios))
+            win_rate = detected_count / len(scenarios) if scenarios else 0.0
+            ci_low, ci_high = bootstrap_confidence_interval(detected_count, len(scenarios))
 
-        cost_blocked, cost_missed = compute_cost(
-            detected_count,
-            len(scenarios) - detected_count,
-            cost_model,
-        )
+            cost_blocked, cost_missed = compute_cost(
+                detected_count,
+                len(scenarios) - detected_count,
+                cost_model,
+            )
 
-        results.append(TournamentResult(
-            run_id=str(uuid.uuid4()),
-            detector_id=detector.detector_id,
-            scenario_count=len(scenarios),
-            detected_count=detected_count,
-            false_positive_count=false_positive_count,
-            cost_blocked=cost_blocked,
-            cost_missed=cost_missed,
-            cost_model_label=cost_model_label,
-            win_rate=round(win_rate, 4),
-            confidence_low=round(ci_low, 4),
-            confidence_high=round(ci_high, 4),
-            ran_at=now_ms(),
-        ))
+            results.append(TournamentResult(
+                run_id=str(uuid.uuid4()),
+                detector_id=detector.detector_id,
+                scenario_count=len(scenarios),
+                detected_count=detected_count,
+                false_positive_count=false_positive_count,
+                cost_blocked=cost_blocked,
+                cost_missed=cost_missed,
+                cost_model_label=cost_model_label,
+                win_rate=round(win_rate, 4),
+                confidence_low=round(ci_low, 4),
+                confidence_high=round(ci_high, 4),
+                ran_at=now_ms(),
+            ))
+        except Exception as exc:
+            # Fault isolation: one detector crashing doesn't kill the tournament
+            results.append(TournamentResult(
+                run_id=str(uuid.uuid4()),
+                detector_id=f"{detector.detector_id}_CRASHED",
+                scenario_count=len(scenarios),
+                detected_count=0,
+                false_positive_count=0,
+                cost_blocked=0.0,
+                cost_missed=0.0,
+                cost_model_label=cost_model_label,
+                win_rate=0.0,
+                confidence_low=0.0,
+                confidence_high=0.0,
+                ran_at=now_ms(),
+            ))
+
 
     return results
 
