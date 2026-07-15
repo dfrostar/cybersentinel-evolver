@@ -1,0 +1,2 @@
+[console_scripts]
+cs-evolver = cybersentinel_evolver.cli:cli
